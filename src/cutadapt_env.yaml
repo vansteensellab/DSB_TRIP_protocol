@@ -1,0 +1,22 @@
+name: cutadapt
+channels:
+- defaults
+dependencies:
+- biopython
+- mkl
+- numpy
+- openssl=1.0.2l=0
+- pip=9.0.1=py27_1
+- python=2.7.13=0
+- readline
+- setuptools=27.2.0=py27_0
+- sqlite=3.13.0=0
+- tk
+- wheel=0.29.0=py27_0
+- zlib=1.2.8=3
+- pip:
+  - cutadapt==1.11
+  - editdistance==0.3.1
+  - xopen==0.2.1
+prefix: /home/t.v.schaik/mydata/miniconda3/envs/cutadapt
+

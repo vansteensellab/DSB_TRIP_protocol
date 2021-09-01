@@ -1,0 +1,440 @@
+import getpass
+import datetime
+import inspect
+import os
+import re
+
+filename = inspect.getframeinfo(inspect.currentframe()).filename
+path = os.path.dirname(os.path.abspath(filename))
+
+split_path = path.split('/')
+split_path[-1] = 'lib'
+lib_path = '/'.join(split_path)
+
+# user = getpass.getuser()
+# date = datetime.datetime.now()
+# date = '%i%0.2i%0.2i' % (date.year, date.month, date.day)
+
+if 'specific_min_count' not in config:
+    config['specific_min_count'] = 1
+
+
+def parse_meta(meta_file):
+    with open(meta_file) as f:
+        header = f.readline().strip().split('\t')
+        id_i = header.index('ID')
+        type_i = header.index('PCR_type')
+        file_i = header.index('file')
+        index_i = index = guide_i = -1
+        if 'index_length' in header:
+            index_i = header.index('index_length')
+        if 'guide' in header:
+            guide_i = header.index('guide')
+        # if 'paired_end' in header:
+        #     paired_i = header.index('paired_end')
+        for line in f.readlines():
+            line_split = line.strip().split('\t')
+            if 'index_length' in header:
+                index = int(line_split[index_i])
+            if guide_i > 0:
+                guide = line_split[guide_i]
+            else:
+                guide = 'NA'
+            # if 'paired_end' in header:
+            #     paired = line_split[paired_i].lower() not in ('false', 'f')
+            # else:
+            #     paired = False
+            yield(line_split[type_i], line_split[id_i], line_split[file_i],
+                  index, guide)
+
+if 'META_INFO' in config:
+    if 'input_file' not in config:
+        config['input_file'] = {}
+    if 'index' not in config:
+        config['index'] = {}
+    if 'guide' not in config:
+        config['guide'] = {}
+    for type, id, file, index, guide in parse_meta(config['META_INFO']):
+        if type not in config['input_file']:
+            config['input_file'][type] = {}
+        if type not in config['index']:
+            config['index'][type] = {}
+        if guide not in config['guide']:
+            config['guide'][guide] = []
+        config['input_file'][type][id] = file.split(',')
+        config['index'][type][id] = index
+        if type == 'indelPCR':
+            config['guide'][guide].append(id)
+
+
+def get_all(config):
+    for type in config['input_file'].keys():
+        for file in get_input(config, type):
+            yield(file)
+
+def get_input(config, type):
+    pattern_dict = {
+        'indelPCR': ['{outdir}/indelPCR_counts/{name}.count.table'],
+        'bcPCR': ['{outdir}/counts/bcPCR.{name}.starcode.count'],
+        'iPCR': ['{outdir}/table/iPCR.{name}.1.table',
+                 '{outdir}/table/iPCR.{name}.2.table']
+    }
+    type_dict = config['input_file'][type]
+    for id in type_dict:
+        for pattern in pattern_dict[type]:
+            yield(pattern.format(outdir=config['outdir'],
+                                 name=id))
+
+rule all:
+    input:
+        get_all(config)
+
+if 'bcPCR' in config['input_file']:
+    rule bc_only:
+        input:
+            get_input(config, 'bcPCR')
+if 'indelPCR' in config['input_file']:
+    rule mutation_only:
+        input:
+            get_input(config, 'indelPCR')
+if 'iPCR' in config['input_file']:
+    rule iPCR_only:
+        input:
+            get_input(config, 'iPCR')
+
+rule specific:
+    input:
+        expand('{outdir}/specificIndel/{name}.count.table',
+               outdir=config['outdir'], name=config['input_file']['indelPCR'])
+
+rule indelphi:
+    input:
+        expand('{outdir}/indelphi_counts/{name}.count.table',
+               outdir=config['outdir'], name=config['input_file']['indelPCR'])
+
+def get_guide_specific(config, wildcards, pattern):
+    if pattern == 'specific':
+        pat = '%s/indel_align/%s.tsv'
+    elif pattern == 'indelphi':
+        pat = '%s/indelphi/indelPCR_%s_indelphi.txt'
+    guide = find_guide(config, wildcards.name)
+    return(pat % (wildcards.outdir, guide))
+
+
+rule specific_indel:
+    input:
+        '{outdir}/indelPCR_counts/{name}.tsv',
+        lambda wildcards: get_guide_specific(config, wildcards, 'specific')
+    output:
+        '{outdir}/specificIndel/{name}.count.table'
+    shell:
+        "{path}/scripts/specific_merge.py -c {input[0]}"
+        "                                 -i {input[1]}"
+        "                                 -o {output}"
+
+
+def find_guide(config, name):
+    guide_dict = config['guide']
+    this_guide = 'default'
+    for guide in guide_dict:
+        if name in guide_dict[guide]:
+            this_guide = guide
+    return(this_guide)
+
+def get_crispr_config(config, guide):
+    delphi_dict = config['crispr_info']
+    if guide in delphi_dict:
+        return delphi_dict[guide]
+    else:
+        return delphi_dict['default']
+
+def get_crispr_config_by_name(config, wildcards):
+    guide = find_guide(config, wildcards.name)
+    return(get_crispr_config(config, guide))
+
+
+rule indelphi_merge:
+    input:
+        '{outdir}/indelPCR_counts/{name}.tsv',
+        lambda wildcards: get_guide_specific(config, wildcards, 'indelphi')
+    output:
+        '{outdir}/indelphi_counts/{name}.count.table'
+    shell:
+        '{path}/scripts/specific_merge.py -c {input[0]}'
+        '                                 -i {input[1]}'
+        '                                 -o {output}'
+
+rule combine_mutation:
+    input:
+        '{outdir}/indelPCR_counts/{name}.tsv'
+    output:
+        '{outdir}/indelPCR_counts/{name}.count.table'
+    run:
+        import pandas
+        import numpy
+        count = pandas.read_table(input[0], names=('count','barcode',
+                                                   'call', 'indel', 'seq'))
+        count = count.fillna(numpy.inf)
+        count_sum = count.groupby(['barcode', 'call', 'indel'])['count'].sum()
+        count_sum = count_sum.replace([numpy.inf], numpy.nan)
+        count_sum.to_csv(output[0], sep='\t', index=True, header=True,
+                         float_format="%.0f")
+
+
+rule count_mutation:
+    input:
+        '{outdir}/indelPCR/{name}.genuine.table'
+    output:
+        '{outdir}/indelPCR_counts/{name}.tsv'
+    threads:
+        5
+    shell:
+        "sort --parallel={threads} {input} | uniq -c | "
+        "awk -vOFS='\t' '{{print $1, $2, $3, $4, $5}}'> {output}"
+
+
+
+rule run_indelphi:
+    input:
+        '{outdir}/indelphi/indelPCR_{guide}.tsv',
+    output:
+        table='{outdir}/indelphi/indelPCR_{guide}_indelphi.txt',
+        indelphi='{outdir}/indelphi/{guide}_indelphi.txt',
+        forecast='{outdir}/indelphi/{guide}_forecast.txt'
+    params:
+        dict = lambda wildcards: get_crispr_config(config, wildcards.guide),
+        celltype = config['celltype'],
+        window = 40,
+        min_count = 50
+    script:
+        'scripts/link_indelphi.py'
+
+
+def group_by_guide(config, wildcards):
+    for id in config['guide'][wildcards.guide]:
+        yield('%s/specificIndel/%s.txt' % (wildcards.outdir, id))
+
+
+rule sum_per_guide:
+    input:
+        lambda wildcards: group_by_guide(config, wildcards)
+    output:
+        '{outdir}/indelphi/indelPCR_{guide}.tsv'
+    script:
+        'scripts/sum_by_guide.R'
+
+rule align_indel:
+    input:
+        lambda wildcards: group_by_guide(config, wildcards)
+    output:
+        '{outdir}/indel_align/{guide}.tsv'
+    params:
+        min_count=config['specific_min_count'],
+        breaksite=lambda wildcards: get_crispr_config(config, wildcards.guide)['cut_site'],
+        sequence=lambda wildcards: get_crispr_config(config, wildcards.guide)['seq'],
+    script:
+        'scripts/align_indelPCR.R'
+
+rule uniq_seq:
+    input:
+        '{outdir}/indelPCR/{name}.genuine.table'
+    output:
+        '{outdir}/specificIndel/{name}.txt'
+    shell:
+        "{path}/scripts/uniq_seq.sh {input} > {output}"
+
+
+rule genuine_barcodes:
+    input:
+        '{outdir}/{type}/{name}.raw.table',
+        '{outdir}/counts/{type}.{name}.starcode.count'
+    output:
+        '{outdir}/{type}/{name}.not_genuine.table',
+        '{outdir}/{type}/{name}.genuine.table'
+    wildcard_constraints:
+        type="[^.]+"
+    script:
+        'scripts/genuine_barcodes.py'
+
+
+rule call_mutation:
+    input:
+        '{outdir}/parsed/indelPCR.{name}.barcode.txt.gz'
+    output:
+        '{outdir}/indelPCR/{name}.raw.table'
+    params:
+        crispr_dict = lambda wildcards:
+                        get_crispr_config_by_name(config,
+                                                  wildcards)
+    script:
+        'scripts/call_mutation.py'
+
+
+rule parse_sam:
+    input:
+        bam='{outdir}/aligned/{name}.{num}.bam',
+        starcode='{outdir}/counts/iPCR.{name}.starcode.count',
+    output:
+        bed='{outdir}/bed/iPCR.{name}.{num}.bed',
+        table='{outdir}/table/iPCR.{name}.{num}.table',
+        stats='{outdir}/stats/iPCR.{name}.{num}.parse_stat.table',
+        length='{outdir}/stats/iPCR.{name}.{num}.length.table',
+        remap_fq='{outdir}/aligned/{name}.{num}.remap.fastq.gz',
+        remap='{outdir}/aligned/{name}.{num}.remap.bam'
+    wildcard_constraints:
+        num="\d+"
+    params:
+        bowtie_index = config['bowtie']['index'],
+        options=config['bowtie']['options'],
+        max_dist = lambda wildcards: config['max_dist'][wildcards.num],
+        num='{num}'
+    threads: 10
+    script:
+        'scripts/parse_sam.py'
+
+
+if 'iPCR' in config['input_file']:
+    rule align:
+        input:
+            '{outdir}/parsed/iPCR.{name}.{num}.fastq.gz'
+        output:
+            '{outdir}/aligned/{name}.{num}.bam'
+        params:
+            bowtie_index=config['bowtie']['index'],
+            options=config['bowtie']['options'],
+            num='{num}'
+        wildcard_constraints:
+            num="\d+"
+        threads: 10
+        log:
+            '{outdir}/iPCR.align.{name}.{num}.log'
+        run:
+            options = params.options[params.num]
+            shell("{path}/scripts/align.sh {input} {log} {threads} "
+                  "{options} {params.bowtie_index} {output}")
+
+
+
+rule starcode:
+    input:
+        '{outdir}/counts/{read_type}.{name}.raw.count'
+    output:
+        gen='{outdir}/counts/{read_type}.{name}.starcode.count',
+        mut='{outdir}/counts/{read_type}.{name}.genuine.cut',
+        count_cut='{outdir}/counts/{read_type}.{name}.count.cut'
+    wildcard_constraints:
+        read_type="[^.]+"
+    params:
+        lev_dist = config['lev_dist'],
+        use_other = False,
+        read_type = '{read_type}',
+        min_count= lambda wildcards: config['min_count'][wildcards.read_type],
+        lib_path=lib_path
+    threads:
+        3
+    script:
+        'scripts/starcode.py'
+
+
+def get_count_input(wildcards):
+    if wildcards.count_type == 'counts':
+        return('{outdir}/parsed/{read_type}.{name}.barcode.txt.gz'.format(
+                   outdir=wildcards.outdir, read_type=wildcards.read_type,
+                   name=wildcards.name))
+
+
+
+rule count_barcode:
+    input:
+        lambda wildcards: get_count_input(wildcards)
+    output:
+        '{outdir}/{count_type}/{read_type}.{name}.raw.count'
+    params:
+        path=path
+    wildcard_constraints:
+        read_type="[^.]+"
+    shell:
+        "{params.path}/scripts/count_barcode.sh {input} > {output}"
+
+
+def get_input_file(config, wildcards, type):
+    if 'indir' in config:
+        indir = config['indir']
+        if indir.endswith('/'):
+            pattern = '%s%s'
+        else:
+            pattern = '%s/%s'
+        for file in config['input_file'][type][wildcards.name]:
+            yield(pattern % (config['indir'], file))
+    else:
+        for file in config['input_file'][type][wildcards.name]:
+            yield(file)
+
+
+rule parse_mutation:
+    input:
+        lambda wildcards: get_input_file(config, wildcards, wildcards.type),
+        structure = '{outdir}/parsed/{type}.{name}.structure.txt'
+    output:
+        '{outdir}/parsed/{type}.{name}.barcode.txt.gz',
+        '{outdir}/parsed/{type}.{name}.statistics.txt'
+    log:
+        '{outdir}/stats/{type}.{name}_parser.log'
+    wildcard_constraints:
+        type="[^.]+"
+    conda: "{path}/cutadapt_env.yaml".format(path=path)
+    shell:
+        '{path}/scripts/read_parser.py -s -r -l {log} '
+        '-b {wildcards.type}.{wildcards.name} {input[0]} {input.structure} '
+        '{wildcards.outdir}/parsed'
+
+
+rule structure:
+    output:
+        structure = '{outdir}/{type}.{name}.structure.txt'
+    params:
+        index= config['index'],
+        structure= config['structure'],
+        type='{type}',
+        name='{name}'
+    run:
+        index = params.index[params.type][params.name]
+        structure_list = params.structure[params.type].split('\n')
+        i = 0
+        while i < len(structure_list):
+            if (structure_list[i].startswith('index') and
+                    "%i" in structure_list[i]):
+                if index == 0:
+                    structure_list.pop(i)
+                    found=True
+                elif index > 0:
+                    structure_list[i] = structure_list[i] % index
+                    found=True
+            i += 1
+        structure = '\n'.join(structure_list)
+        with open(output.structure, 'w') as f:
+            f.write(structure)
+
+
+
+
+
+if 'iPCR' in config['input_file']:
+    ruleorder: parse_iPCR > parse_mutation
+
+    rule parse_iPCR:
+        input:
+            lambda wildcards: list(get_input_file(config, wildcards, 'iPCR')),
+            structure='{outdir}/parsed/iPCR.{name}.structure.txt'
+        output:
+            '{outdir}/parsed/iPCR.{name}.barcode.txt.gz',
+            '{outdir}/parsed/iPCR.{name}.1.fastq.gz',
+            '{outdir}/parsed/iPCR.{name}.2.fastq.gz',
+            '{outdir}/parsed/iPCR.{name}.statistics.txt',
+        log:
+            '{outdir}/stats/iPCR.{name}_parser.log'
+        conda: "{path}/cutadapt_env.yaml".format(path=path)
+        shell:
+            '{path}/scripts/read_parser.py -r -a -l {log} -p {input[1]} '
+            '-b iPCR.{wildcards.name} {input[0]} {input.structure} '
+            '{wildcards.outdir}/parsed'
