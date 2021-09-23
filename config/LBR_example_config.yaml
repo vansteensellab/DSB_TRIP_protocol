@@ -12,7 +12,7 @@ structure:
   iPCR: |
     ID      5'      3'      type    req     second-read     pos   keep-bases
     index   10      -       const   present False   fixed   -
-    const_bar       GTCACAAGGGCCGGCCACAA{16}TGATC  -       const_bar       present False   fixed   -
+    constant_barcode       GTCACAAGGGCCGGCCACAA{16}TGATC  -       const_bar       present False   fixed   -
     rev_map_complement      -       TTAACCCTAGAAAGATAATCATATTGTGACGTAC      const   -       False   var   -
     rev_map GTACGTCACAATATGATTATCTTTCTAGGGTTAA      -       const   present True    fixed   4
     fwd_map_complement      -       GATCA[BC]TTGTGGCCGGCCCTTGTGAC     const_bar_comp  -       True    var   -
