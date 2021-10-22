@@ -23,6 +23,7 @@ bash example.sh -t 10
 ```
 
 This runs the pipeline on an example dataset using 10 cores.
+
 After downloading the right data from SRA, the following snakemake command is called:
 
 ```bash
