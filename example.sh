@@ -7,7 +7,7 @@ THREADS=1
 OUTDIR=$SCRIPT_DIR/example
 META=$SCRIPT_DIR/config/metadata.txt
 CONFIG=$SCRIPT_DIR/config/LBR_example_config.yaml
-SNAKE=$SCRIPT_DIR/src/crispr_trip.snake
+SNAKE=$SCRIPT_DIR/src/dsb_trip.snake
 
 #Set fonts for Help.
 NORM=`tput sgr0`

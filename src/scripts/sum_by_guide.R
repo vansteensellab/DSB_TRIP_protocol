@@ -1,5 +1,8 @@
 library(data.table)
-
+## This function is used to create a list of unique sequences found in all
+## experiments using a specific guide RNA to cut.
+## Main purpose of this clustering is to reduce computational time for
+## pairwise alignment or mutational analysis using inDelphi/SelfTarget.
 
 save(snakemake, file='test.Rdata')
 

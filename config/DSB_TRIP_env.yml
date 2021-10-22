@@ -169,6 +169,7 @@ dependencies:
   - snakemake-minimal=6.7.0=pyhdfd78af_0
   - sqlite=3.36.0=hc218d9a_0
   - stopit=1.1.2=py_0
+  - starcode-1.4
   - tabulate=0.8.9=py37h06a4308_0
   - tk=8.6.10=hbc83047_0
   - toml=0.10.2=pyhd3eb1b0_0

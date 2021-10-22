@@ -18,7 +18,7 @@ lib_path = '/'.join(split_path)
 if 'specific_min_count' not in config:
     config['specific_min_count'] = 1
 
-
+## parse the metadata file to retrieve info which can be added to the config.
 def parse_meta(meta_file):
     with open(meta_file) as f:
         header = f.readline().strip().split('\t')
@@ -47,6 +47,9 @@ def parse_meta(meta_file):
             yield(line_split[type_i], line_split[id_i], line_split[file_i],
                   index, guide)
 
+## if a metadata file is used add the items to the input defined in the config
+## if no input is defined in the config, create the right entries in the
+## config dictionary and fill them with info from the metadata file.
 if 'META_INFO' in config:
     if 'input_file' not in config:
         config['input_file'] = {}
@@ -122,6 +125,9 @@ def get_guide_specific(config, wildcards, pattern):
 
 
 rule specific_indel:
+    ## merge pairwise alignment calls with classic indel calls + counts.
+    ## This is done to link sequences back to barcodes that were previously
+    ## removed to reduce redundant operations.
     input:
         '{outdir}/indelPCR_counts/{name}.tsv',
         lambda wildcards: get_guide_specific(config, wildcards, 'specific')
@@ -154,6 +160,10 @@ def get_crispr_config_by_name(config, wildcards):
 
 
 rule indelphi_merge:
+    ## merge indelphi/forecast predictions with sequences in the
+    ## table with classic indel calls + counts.
+    ## This is done to link sequences back to barcodes that were removed
+    ## to reduce redundant operations.
     input:
         '{outdir}/indelPCR_counts/{name}.tsv',
         lambda wildcards: get_guide_specific(config, wildcards, 'indelphi')
@@ -165,6 +175,7 @@ rule indelphi_merge:
         '                                 -o {output}'
 
 rule combine_mutation:
+    ## sum up the different mutation calls per barcode combination
     input:
         '{outdir}/indelPCR_counts/{name}.tsv'
     output:
@@ -182,6 +193,10 @@ rule combine_mutation:
 
 
 rule count_mutation:
+    ## sum up the different mutation calls per sequence/barcode combination.
+    ## in this table sequences from which calls were made are kept.
+    ## in the "combine_mutation" rule, the sequence is discarded and barcodes
+    ## are summed per mutation call.
     input:
         '{outdir}/indelPCR/{name}.genuine.table'
     output:
@@ -195,6 +210,7 @@ rule count_mutation:
 
 
 rule run_indelphi:
+    ## Compare unique sequences with indel calls to indelphi/forecast predictions.
     input:
         '{outdir}/indelphi/indelPCR_{guide}.tsv',
     output:
@@ -216,6 +232,7 @@ def group_by_guide(config, wildcards):
 
 
 rule sum_per_guide:
+    ## sum sequences by guide and focus on sequences for which an indel was found.
     input:
         lambda wildcards: group_by_guide(config, wildcards)
     output:
@@ -224,6 +241,7 @@ rule sum_per_guide:
         'scripts/sum_by_guide.R'
 
 rule align_indel:
+    ## perform pairwise alignment on sequences found in sample.
     input:
         lambda wildcards: group_by_guide(config, wildcards)
     output:
@@ -236,6 +254,10 @@ rule align_indel:
         'scripts/align_indelPCR.R'
 
 rule uniq_seq:
+    ## count sequences linked to genuine sequences together (discarding barcode).
+    ## This is used to gather a list of unique sequences so that time consuming
+    ## pairwise allignment of the same sequence is not necessary.
+    ## output is used by "sum_per_guide" and "align_indel" rules.
     input:
         '{outdir}/indelPCR/{name}.genuine.table'
     output:
@@ -245,6 +267,7 @@ rule uniq_seq:
 
 
 rule genuine_barcodes:
+    ## split barcodes by "genuine" barcodes or mutated based on starcode output
     input:
         '{outdir}/{type}/{name}.raw.table',
         '{outdir}/counts/{type}.{name}.starcode.count'
@@ -258,6 +281,9 @@ rule genuine_barcodes:
 
 
 rule call_mutation:
+    ## use the traditional method of detecting shifts in patterns after
+    ## breaksite to calculate indel size and look for presence of wild-type
+    ## pattern or pattern of targeted mutation.
     input:
         '{outdir}/parsed/indelPCR.{name}.barcode.txt.gz'
     output:
@@ -271,6 +297,10 @@ rule call_mutation:
 
 
 rule parse_sam:
+    ## Parse bam file and group reads by barcode.
+    ## When local alignment is used, realign possible spurious ligation
+    ## events. Such that the gDNA directly at the transposon is used
+    ## instead of the randomly ligated DNA.
     input:
         bam='{outdir}/aligned/{name}.{num}.bam',
         starcode='{outdir}/counts/iPCR.{name}.starcode.count',
@@ -295,6 +325,8 @@ rule parse_sam:
 
 if 'iPCR' in config['input_file']:
     rule align:
+        ## align reads using a special alignment strategy which alligns
+        ## read pairs seperately.
         input:
             '{outdir}/parsed/iPCR.{name}.{num}.fastq.gz'
         output:
@@ -316,6 +348,8 @@ if 'iPCR' in config['input_file']:
 
 
 rule starcode:
+    ## run starcode to split "genuine" barcodes from variations upon them due to
+    ## mutation/read error
     input:
         '{outdir}/counts/{read_type}.{name}.raw.count'
     output:
@@ -345,6 +379,7 @@ def get_count_input(wildcards):
 
 
 rule count_barcode:
+    ##simply count barcode occurences (used as input for starcode)
     input:
         lambda wildcards: get_count_input(wildcards)
     output:
@@ -372,6 +407,11 @@ def get_input_file(config, wildcards, type):
 
 
 rule parse_mutation:
+    ## retrieve barcodes and trim reads so each one starts at the nucleotide
+    ## after the barcode. This is done so that different length barcodes*
+    ## do not result in shifts in the sequence positions used to calculate
+    ## indel size.
+    ## *barcodes can sometimes be a little shorter or longer (mostly 1bp).
     input:
         lambda wildcards: get_input_file(config, wildcards, wildcards.type),
         structure = '{outdir}/parsed/{type}.{name}.structure.txt'
@@ -389,7 +429,11 @@ rule parse_mutation:
         '{wildcards.outdir}/parsed'
 
 
+
 rule structure:
+    ## Format structure defining barcode location and which part of the sequence
+    ## to keep for further processing. Structure is used for read parsing
+    ## of indelPCR, PCRs over barcode alone as well as iPCR reads.
     output:
         structure = '{outdir}/{type}.{name}.structure.txt'
     params:
@@ -416,13 +460,13 @@ rule structure:
             f.write(structure)
 
 
-
-
-
 if 'iPCR' in config['input_file']:
     ruleorder: parse_iPCR > parse_mutation
 
     rule parse_iPCR:
+        ## parse iPCR reads: remove constant sequences and retrieve barcode.
+        ## Genomic DNA is left which can be aligned to the genome. And
+        ## barcode is added to the read-id.
         input:
             lambda wildcards: list(get_input_file(config, wildcards, 'iPCR')),
             structure='{outdir}/parsed/iPCR.{name}.structure.txt'
