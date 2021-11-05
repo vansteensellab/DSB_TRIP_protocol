@@ -1,11 +1,11 @@
-outdir: '/DATA/scratch/usr/c.leemans/projects/DSB_protocol/results'
-indir: '/DATA/projects/DSBrepair/data/SRA_data_DSBTRIP'
+outdir: '/home/christ/DSB_protocol'
+indir: '/mnt/Lovelace/projects/DSB_protocol/example/raw'
 
 ## META_INFO has to contain the following headers in a tab seperated file format:
 # ID: unique identifier for experiment set (e.g. indelPCR and bcPCR pair)
 # PCR_type: type of the PCR used [bcPCR, indelPCR or iPCR]
 # file: name of the input file (path from indir directory)
-META_INFO: '/DATA/scratch/usr/c.leemans/projects/DSB_protocol/config/metadata.txt'
+META_INFO: '/mnt/Lovelace/projects/DSB_protocol/config/metadata.txt'
 
 
 structure:
@@ -15,7 +15,7 @@ structure:
     constant_barcode       GTCACAAGGGCCGGCCACAA{16}TGATC  -       const_bar       present False   fixed   -
     rev_map_complement      -       TTAACCCTAGAAAGATAATCATATTGTGACGTAC      const   -       False   var   -
     rev_map GTACGTCACAATATGATTATCTTTCTAGGGTTAA      -       const   present True    fixed   4
-    fwd_map_complement      -       GATCA[BC]TTGTGGCCGGCCCTTGTGAC     const_bar_comp  -       True    var   -
+    fwd_map_complement      -       GATCA{16}TTGTGGCCGGCCCTTGTGAC     const  -       True    var   -
 
   indelPCR: |
     ID      5'      3'      type    req     second-read     pos   keep-bases
@@ -33,7 +33,7 @@ min_count:
 celltype: K562
 
 bowtie:
-  index:  /DATA/data/human/hg38/index/bowtie2/hg38_1-22_XYM
+  index:  /mnt/Lovelace/data/hg38/hg38_1-22_XYM
   options:
       '1': ['--very-sensitive']
       '2': ['--very-sensitive-local']

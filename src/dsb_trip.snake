@@ -100,20 +100,23 @@ if 'indelPCR' in config['input_file']:
     rule mutation_only:
         input:
             get_input(config, 'indelPCR')
+
+    rule specific:
+        input:
+            expand('{outdir}/specificIndel/{name}.count.table',
+                   outdir=config['outdir'], name=config['input_file']['indelPCR'])
+
+    rule indelphi:
+        input:
+            expand('{outdir}/indelphi_counts/{name}.count.table',
+                   outdir=config['outdir'], name=config['input_file']['indelPCR'])
 if 'iPCR' in config['input_file']:
     rule iPCR_only:
         input:
             get_input(config, 'iPCR')
 
-rule specific:
-    input:
-        expand('{outdir}/specificIndel/{name}.count.table',
-               outdir=config['outdir'], name=config['input_file']['indelPCR'])
 
-rule indelphi:
-    input:
-        expand('{outdir}/indelphi_counts/{name}.count.table',
-               outdir=config['outdir'], name=config['input_file']['indelPCR'])
+
 
 def get_guide_specific(config, wildcards, pattern):
     if pattern == 'specific':

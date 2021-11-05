@@ -105,17 +105,18 @@ import re
 from Bio import Seq
 import editdistance
 
+
 ###############################################################################
 ##### Cutadapt main script starts here - heavily tweaked ######################
 ###############################################################################
 
 import inspect
 import os
-
+import numpy as np
 
 # Print a helpful error message if the extension modules cannot be imported.
-from cutadapt import check_importability
-check_importability()
+# from cutadapt import check_importability
+# check_importability()
 
 import time
 import errno
@@ -123,17 +124,21 @@ import functools
 import platform
 import textwrap
 
-from cutadapt import seqio, __version__
-from cutadapt.xopen import xopen
-from cutadapt.adapters import AdapterParser, Adapter
+from cutadapt import seqio, __version__, align
+from xopen import xopen
+from abc import ABC, abstractmethod
+from cutadapt.adapters import AdapterParser, AdapterStatistics
 from cutadapt.modifiers import (LengthTagModifier, SuffixRemover, PrefixSuffixAdder,
 	DoubleEncoder, ZeroCapper, PrimerTrimmer, QualityTrimmer, UnconditionalCutter,
 	NEndTrimmer, AdapterCutter, NextseqQualityTrimmer)
 from cutadapt.filters import (NoFilter, PairedNoFilter, Redirector, PairedRedirector,
-	LegacyPairedRedirector, TooShortReadFilter, TooLongReadFilter,
+    TooShortReadFilter, TooLongReadFilter,
 	Demultiplexer, NContentFilter, DiscardUntrimmedFilter, DiscardTrimmedFilter)
 from cutadapt.report import Statistics, print_report, redirect_standard_output
 from cutadapt.compat import next
+from typing import Optional, Tuple, Sequence, Dict, Any, List, Union
+
+
 
 def process_single_reads(reader, modifiers, filters, all_file, all_number,
                          barcode_file, has_index=False, barcode_seq=False,
@@ -202,10 +207,9 @@ def process_single_reads(reader, modifiers, filters, all_file, all_number,
 
          # Only continue when reads are still interesting
          if keep:
-            read = modifier(read)
-
-            # this is the found match
-            match = read.match_info[0][5] if read.match_info else "-"
+            match_list = []
+            read = modifier(read, match_list)
+            match = match_list[0].get_info_record()[5] if len(match_list)>0 else "-"
 
             if all_file:
                all_info.append(match)
@@ -215,7 +219,7 @@ def process_single_reads(reader, modifiers, filters, all_file, all_number,
                   barcodes.append(match)
                else:
                   # For the const_bar method, find the barcode within the match
-                  barcode = find_var(read, const_var)
+                  barcode = find_var(read, match_list, const_var)
                   if barcode == "" and _req == True:
                      keep = False
                   barcodes.append(barcode)
@@ -235,10 +239,10 @@ def process_single_reads(reader, modifiers, filters, all_file, all_number,
                # Let's only write fastq entries when there is something to write
                if _type in ("DNA", "const_DNA"):
                   if _type == "DNA":
-                     qual = read.match_info[0][9]
+                     qual = match_list[0].get_info_record()[9]
                      dna = seqio.Sequence(read.name, match, qual)
                   else:
-                     dna = find_var(read, const_var, "sequence")
+                     dna = find_var(read, match_list, const_var, "sequence")
                      if dna.sequence == "" and _req == True:
                         keep = False
                   # Write DNA sequences to file using a "just write" filter
@@ -256,10 +260,10 @@ def process_single_reads(reader, modifiers, filters, all_file, all_number,
                   # Keep n bases from the match removed
                   if keep_bases[1] == "_5":
                      read.sequence = match[-keep_bases[0]:] + read.sequence
-                     read.qualities = read.match_info[0][9][-keep_bases[0]:] + read.qualities
+                     read.qualities = match_list[0].get_info_record()[9][-keep_bases[0]:] + read.qualities
                   else:
                      read.sequence = read.sequence + match[:keep_bases[0]]
-                     read.qualities = read.qualities + read.match_info[0][9][:keep_bases[0]]
+                     read.qualities = read.qualities + match_list[0].get_info_record()[9][:keep_bases[0]]
 
             else:
                if _req == True:
@@ -315,16 +319,18 @@ def process_single_reads(reader, modifiers, filters, all_file, all_number,
             if has_index == False:
                # This is the cutadapt-way; only write when the filter is passed
                # and then "break"
-               if filter(read):
+               if filter(read, []):
                   break
             else:
                if index == _seq:
-                  if filter(read):
+                  if filter(read, []):
                      break
 
          n_written += 1
-
-   return (Statistics(n=n, total_bp1=total_bp, total_bp2=None), n_written, n_tooshort)
+   stats = Statistics()
+   stats.collect(n, total_bp, None, [x[0] for x in modifiers], [],
+                 [x[0] for x in filters])
+   return (stats, n_written, n_tooshort)
 
 def process_paired_reads(paired_reader, modifiers, filters, all_file, all_number,
                          barcode_file, has_index=False, barcode_seq=False,
@@ -434,14 +440,15 @@ def process_paired_reads(paired_reader, modifiers, filters, all_file, all_number
                # Replace Adapter with new Adapter
                modifier.adapters[0] = Adapter(new_seq, where = modifier.adapters[0].where)
 
-            read = modifier(read)
-            match = read.match_info[0][5] if read.match_info else "-"
+            match_list = []
+            read = modifier(read, match_list)
+            match = match_list[0].get_info_record()[5] if len(match_list)>0 else "-"
 
             if _type in ("barcode", "const_bar"):
                if _type == "barcode":
                   barcodes.append(match)
                else:
-                  barcode = find_var(read, const_var)
+                  barcode = find_var(read, match_list, const_var)
                   if barcode == "" and _req == True:
                      keep = False
                   barcodes.append(barcode)
@@ -462,10 +469,10 @@ def process_paired_reads(paired_reader, modifiers, filters, all_file, all_number
                # Only write DNA fastq entries of matched reads
                if _type in ("DNA", "const_DNA"):
                   if _type == "DNA":
-                     qual = read.match_info[0][9]
+                     qual = match_list[0].get_info_record()[9]
                      dna = seqio.Sequence(read.name, match, qual)
                   else:
-                     dna = find_var(read, const_var, "sequence")
+                     dna = find_var(read, match_list, const_var, "sequence")
                   DNA_hits[_ID] = dna
 
                if _type == "index":
@@ -478,10 +485,10 @@ def process_paired_reads(paired_reader, modifiers, filters, all_file, all_number
                   # Keep n bases from the match removed
                   if keep_bases[1] == "_5":
                      read.sequence = match[-keep_bases[0]:] + read.sequence
-                     read.qualities = read.match_info[0][9][-keep_bases[0]:] + read.qualities
+                     read.qualities = match_list[0].get_info_record()[9][-keep_bases[0]:] + read.qualities
                   else:
                      read.sequence = read.sequence + match[:keep_bases[0]]
-                     read.qualities = read.qualities + read.match_info[0][9][:keep_bases[0]]
+                     read.qualities = read.qualities + match_list[0].get_info_record()[9][:keep_bases[0]]
 
             else:
                if _req == True:
@@ -545,16 +552,19 @@ def process_paired_reads(paired_reader, modifiers, filters, all_file, all_number
          # for which this would be useful
          for filter, _seq in filters:
             if has_index == False:
-               if filter(read1, read2):
+               if filter(read1, read2, [], []):
                   break
             else:
                if index == _seq:
-                  if filter(read1, read2):
+                  if filter(read1, read2, [], []):
                      break
 
          n_written += 1
 
-   return (Statistics(n=n, total_bp1=total1_bp, total_bp2=total2_bp), n_written, n_tooshort)
+   stats = Statistics()
+   stats.collect(n, total1_bp, total2_bp, [x[0] for x in modifiers], [],
+                 [x[0] for x in filters])
+   return (stats, n_written, n_tooshort)
 
 def run(reads, read_matrix, output_base,
         all_file=False,
@@ -672,9 +682,6 @@ def run(reads, read_matrix, output_base,
 
       adapter_cutter = AdapterCutter(adapters=adapters,
                                      times=1,
-                                     wildcard_file=None,
-                                     info_file=None,
-                                     rest_writer=None,
                                      action="trim")
       # "Manually" set to store match info
       adapter_cutter.keep_match_info = True
@@ -809,16 +816,16 @@ def run(reads, read_matrix, output_base,
    ############################################################################
 
    # Main read processing (as done in cutadapt)
-   start_time = time.clock()
+   start_time = time.perf_counter()
    try:
    	if paired:
-         stats = process_paired_reads(reader, modifiers, filters, all_file,
-                                      all_number, barcode_file, has_index,
-                                      barcode_seq, DNAs, bc_named, min_length)
+         processed = process_paired_reads(reader, modifiers, filters, all_file,
+                                          all_number, barcode_file, has_index,
+                                          barcode_seq, DNAs, bc_named, min_length)
    	else:
-         stats = process_single_reads(reader, modifiers, filters, all_file,
-                                      all_number, barcode_file, has_index,
-                                      barcode_seq, DNAs, bc_named, min_length)
+         processed = process_single_reads(reader, modifiers, filters, all_file,
+                                          all_number, barcode_file, has_index,
+                                          barcode_seq, DNAs, bc_named, min_length)
    except KeyboardInterrupt as e:
    	print("Interrupted", file=sys.stderr)
    	sys.exit(130)
@@ -834,17 +841,13 @@ def run(reads, read_matrix, output_base,
    ############################################################################
 
    # Prepare and report statistics
-   elapsed_time = time.clock() - start_time
+   elapsed_time = time.perf_counter() - start_time
 
    statistics_file = xopen(output_base + ".statistics.txt", "w")
 
-   # Note that I have to select the first element in each list to get the
-   # actual adapter / modifier / filter
-   stats[0].collect([x[0] for x in adapters_list], elapsed_time,
-                    [x[0] for x in modifiers], [], [x[0] for x in filters])
 
    # And use a custom function to write statistics to
-   stats = gather_statistics(stats, modifiers, statistics_file)
+   stats = gather_statistics(processed, modifiers, statistics_file)
 
    ############################################################################
    ### Finally: close open files ##############################################
@@ -1011,7 +1014,7 @@ def process_end(read_end, which, _ID, _type, _pos,
          # Create a second (linked) parser to extract the barcode
          # Note: this is more lenient with errors as this is only executed when
          # the complete const_bar type is found, so the barcode MUST be there
-         adapter_parser.constructor_args["max_error_rate"] = 0.2
+         adapter_parser.default_parameters["max_error_rate"] = 0.2
          const_var = {5 : None, 3 : None}
          if end[0]:
             seq = ["^" + end[0]]
@@ -1031,7 +1034,7 @@ def process_end(read_end, which, _ID, _type, _pos,
          # "do not count" towards the max error rate
          tot_len = sum(len(s) for s in end)
          mer_new = max_error_rate * (tot_len - len(end[1])) / tot_len
-         adapter_parser.constructor_args["max_error_rate"] = mer_new
+         adapter_parser.default_parameters["max_error_rate"] = mer_new
 
          max_errs = int(tot_len * mer_new)
          logging.debug("Changed max_error_rate for %s to %f (max %d error(s))" % (
@@ -1045,7 +1048,7 @@ def process_end(read_end, which, _ID, _type, _pos,
             max_error_rate, override = True)
 
          # Change max_error_rate if a new one is given
-         adapter_parser.constructor_args["max_error_rate"] = max_error_rate_new
+         adapter_parser.default_parameters["max_error_rate"] = max_error_rate_new
 
          read_end = sequences
 
@@ -1117,14 +1120,14 @@ def create_adapters(features, adapter_parser, max_error_rate=0.1):
                                                 max_error_rate, adapter_parser, const_var)
       index_names = index_names1 + index_names2
 
-      # Create adapter class, stored in a tuple with other important information
+      # Create adapter class, stored in a tuple with other important iqformation
       adpt = (adapter_parser.parse_multi(_3, [], _5), _ID, _type, _req,
               _second, keep_bases, const_var, index_names)
 
       adapters.append(adpt)
 
       # Return max_error_rate if swapped for class "const_bar"
-      adapter_parser.constructor_args["max_error_rate"] = max_error_rate
+      adapter_parser.default_parameters["max_error_rate"] = max_error_rate
 
 #   except ValueError as e:
 #       raise BaseError("Error in read parsing")
@@ -1171,23 +1174,24 @@ def best_match_index(self, read):
             self.adapter = None
    return best
 
-def find_var(read, const_var, give = "dna"):
+def find_var(read, match_list, const_var, give = "dna"):
    """
    Small function to extract the barcode sequence from the found match, using
    a very lenient linked adapter
 
    give can be "dna" (just the DNA stretch) or "sequence" (a sequence object)
    """
-   if read.match_info:
+
+   if len(match_list) > 0:
       # Extract sequence and create new "Sequence" object
-      seq = read.match_info[0][5]
-      qual = read.match_info[0][9]
+      seq = match_list[0].get_info_record()[5]
+      qual = match_list[0].get_info_record()[9]
       match = seqio.Sequence(read.name, seq, qual)
 
       # Find barcode
       for i in const_var:
          if const_var[i]:
-            match = const_var[i](match)
+            match = const_var[i](match, [])
             if seq == match.sequence:
                #logging.debug("Pattern matched but no barcode found for read %s - %s" % (
                #              match.name, match.sequence))
@@ -1221,7 +1225,7 @@ def gather_statistics(stats, modifiers, statistics_file):
    Create a small text file with the trimmed adapter counts
    """
    stats, n_written, n_tooshort = stats
-   n, bp_total, bp_written = stats.n, stats.total_bp, stats.total_written_bp
+   n, bp_total, bp_written = stats.n, np.sum(stats.total_bp), stats.total_written_bp
 
    logging.debug("\n%d reads processed, %d reads written" % (n, n_written))
 

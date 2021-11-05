@@ -47,7 +47,7 @@ else:
     ## use spheric clustering when clustering on barcode abundancy in this sample
     args = ('starcode', '--print-clusters',
             '-d %i -t %i -s' % (param_dict['lev_dist'],
-                                nakemake.threads))
+                                snakemake.threads))
 
 
 starcode = subprocess.Popen(args, shell=True, stdin=subprocess.PIPE,

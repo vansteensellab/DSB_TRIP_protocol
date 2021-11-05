@@ -1,13 +1,4 @@
-
 import sys
-import inDelphi
-import sklearn
-import Levenshtein
-from Bio.Seq import Seq
-import pandas
-from multiprocessing import Pool, Process, Queue
-from functools import partial
-from predictor.predict import predictMutations
 import inspect
 import os
 
@@ -20,6 +11,14 @@ sys.path.append('/'.join(lib_path + ['inDelphi-model']))
 sys.path.append('/'.join(lib_path + ['SelfTarget', 'indel_prediction']))
 sys.path.append('/'.join(lib_path + ['SelfTarget', 'selftarget_pyutils']))
 
+import inDelphi
+import sklearn
+import Levenshtein
+from Bio.Seq import Seq
+import pandas
+from multiprocessing import Pool, Process, Queue
+from functools import partial
+from predictor.predict import predictMutations
 
 def characterise(row):
     mm_len = row['Microhomology length']

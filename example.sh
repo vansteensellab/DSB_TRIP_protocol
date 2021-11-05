@@ -85,4 +85,4 @@ done
 
 snakemake -j $THREADS -s $SNAKE \
           --configfile $CONFIG --use-conda \
-          --config indir=$OUTDIR/raw outdir=$OUTDIR/results \
+          --config indir=$OUTDIR/raw outdir=$OUTDIR/results
