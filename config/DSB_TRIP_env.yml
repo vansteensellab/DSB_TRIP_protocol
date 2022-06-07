@@ -18,6 +18,6 @@ dependencies:
   - yaml=0.2.5
   - bowtie2=2.4.4
   - python-levenshtein=0.12.0
-  - cutadapt=3.4
+  - cutadapt=1.18
   - editdistance=0.5.3
 prefix: /home/c.leemans/mydata/miniconda3/envs/dsb_protocol
