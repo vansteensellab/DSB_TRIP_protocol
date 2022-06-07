@@ -1,8 +1,6 @@
 name: dsb_trip
 channels:
   - bioconda
-  - r
-  - defaults
   - conda-forge
 dependencies:
   - biopython=1.78
@@ -20,4 +18,3 @@ dependencies:
   - python-levenshtein=0.12.0
   - cutadapt=3.4
   - editdistance=0.5.3
-prefix: /home/c.leemans/mydata/miniconda3/envs/dsb_protocol

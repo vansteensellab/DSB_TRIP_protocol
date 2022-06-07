@@ -480,7 +480,6 @@ if 'iPCR' in config['input_file']:
             '{outdir}/parsed/iPCR.{name}.statistics.txt',
         log:
             '{outdir}/stats/iPCR.{name}_parser.log'
-        conda: "{path}/cutadapt_env.yaml".format(path=path)
         shell:
             '{path}/scripts/read_parser.py -r -a -l {log} -p {input[1]} '
             '-b iPCR.{wildcards.name} {input[0]} {input.structure} '
