@@ -29,8 +29,8 @@ After downloading the right data from SRA, the following snakemake command is ca
 ```bash
 conda activate dsb_trip
 
-snakemake -j 10 -s src/crispr_trip.snake \
-          --configfile config/LBR_example_config.yaml --use-conda \
+snakemake -j 10 -s src/dsb_trip.snake \
+          --configfile config/LBR_example_config.yaml \
           --config indir=example/raw outdir=example/results 
 ```
 
