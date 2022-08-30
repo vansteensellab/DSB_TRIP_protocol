@@ -4,6 +4,9 @@ git repository to accompany Schep et al. 2022
 # dependencies
 Before running the pipeline, some dependencies need to be installed.
 Most of them can be installed using conda, others need to be downloaded from git using a bash script.
+In addition SRA toolkit needs to be installed manually:
+https://github.com/ncbi/sra-tools/wiki/01.-Downloading-SRA-Toolkit
+
 
 ```bash
 
