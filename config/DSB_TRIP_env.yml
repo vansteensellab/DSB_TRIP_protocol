@@ -18,3 +18,5 @@ dependencies:
   - python-levenshtein=0.12.0
   - cutadapt=1.18
   - editdistance=0.5.3
+  - starcode
+  
